@@ -1,201 +1,124 @@
 local QBCore = exports['qb-core']:GetCoreObject()
 RegisterNetEvent('QBCore:Client:UpdateObject', function() QBCore = exports['qb-core']:GetCoreObject() end)
 
--- Menu Variables
-local menuOpen = false
-local entities = {}
-local header = ""
+local headerShown = false
+local sendData = nil
 
 -- Functions
 
--- Define closeMenu first since it's used by other functions
-local function closeMenu(withNui)
-    if withNui then
-        SendNUIMessage({
-            action = "CLOSE_MENU"
-        })
-    end
-    
-    SetNuiFocus(false, false)
-    menuOpen = false
+local function sortData(data, skipfirst)
+    local header = data[1]
+    local tempData = data
+    if skipfirst then table.remove(tempData,1) end
+    table.sort(tempData, function(a,b) return a.header < b.header end)
+    if skipfirst then table.insert(tempData,1,header) end
+    return tempData
 end
 
-local function sortData(data, skipFirst)
-    if not data or #data < 2 then return data end
-    
-    local result = {}
-    for i, v in ipairs(data) do
-        result[i] = v
-    end
-    
-    if skipFirst then
-        local firstItem = table.remove(result, 1)
-        table.sort(result, function(a, b)
-            if a.header and b.header then
-                return tostring(a.header):lower() < tostring(b.header):lower()
-            end
-            return false
-        end)
-        table.insert(result, 1, firstItem)
-    else
-        table.sort(result, function(a, b)
-            if a.isMenuHeader then return true end
-            if b.isMenuHeader then return false end
-            if a.header and b.header then
-                return tostring(a.header):lower() < tostring(b.header):lower()
-            end
-            return false
-        end)
-    end
-    
-    return result
-end
-
-local function showMenu(data, sort, skipFirst)
-    if not data or not next(data) then 
-        print("No menu data provided")
-        return 
-    end
-    
-    -- Deep copy the data to avoid modifying the original
-    local menuData = {}
-    for i, v in ipairs(data) do
-        menuData[i] = {}
-        for k, val in pairs(v) do
-            if k == "params" and type(val) == "table" then
-                menuData[i][k] = {}
-                for paramK, paramV in pairs(val) do
-                    menuData[i][k][paramK] = paramV
-                end
-            else
-                menuData[i][k] = val
-            end
-        end
-    end
-    
-    -- Sort the data if requested
-    if sort then
-        menuData = sortData(menuData, skipFirst)
-    end
-    
-    -- Process icons and ensure proper structure
-    for _, v in pairs(menuData) do
-        -- Handle FontAwesome icons
-        if v.icon and string.find(v.icon, "fa%-") then
-            -- Keep FontAwesome icons as is
-        -- Handle item icons
-        elseif v.icon and QBCore.Shared.Items[tostring(v.icon)] then
-            if not string.find(QBCore.Shared.Items[tostring(v.icon)].image, "//") then
-                v.icon = "nui://qb-inventory/html/images/"..QBCore.Shared.Items[tostring(v.icon)].image
-            end
-        end
-        
-        -- Ensure params structure is correct
-        if v.params then
-            if v.params.args and type(v.params.args) ~= "table" then
-                v.params.args = { v.params.args }
-            end
-        end
-    end
-
-    if menuOpen then
-        closeMenu(true)
-        Wait(100)
-    end
-
-    menuOpen = true
+local function openMenu(data, sort, skipFirst)
+    if not data or not next(data) then return end
+    if sort then data = sortData(data, skipFirst) end
+	for _,v in pairs(data) do
+		if v["icon"] then
+			if QBCore.Shared.Items[tostring(v["icon"])] then
+				if not string.find(QBCore.Shared.Items[tostring(v["icon"])].image, "//") and not string.find(v["icon"], "//") then
+                    v["icon"] = "nui://qb-inventory/html/images/"..QBCore.Shared.Items[tostring(v["icon"])].image
+				end
+			end
+		end
+	end
     SetNuiFocus(true, true)
+    headerShown = false
+    sendData = data
     SendNUIMessage({
-        action = "OPEN_MENU",
-        data = menuData
+        action = 'OPEN_MENU',
+        data = table.clone(data)
+    })
+end
+
+local function closeMenu()
+    sendData = nil
+    headerShown = false
+    SetNuiFocus(false)
+    SendNUIMessage({
+        action = 'CLOSE_MENU'
     })
 end
 
 local function showHeader(data)
     if not data or not next(data) then return end
-    header = data[1].header
-    SetNuiFocus(true, true)
+    headerShown = true
+    sendData = data
     SendNUIMessage({
-        action = "SHOW_HEADER",
-        data = data
+        action = 'SHOW_HEADER',
+        data = table.clone(data)
     })
 end
 
 -- Events
 
 RegisterNetEvent('qb-menu:client:openMenu', function(data, sort, skipFirst)
-    showMenu(data, sort, skipFirst)
+    openMenu(data, sort, skipFirst)
 end)
 
 RegisterNetEvent('qb-menu:client:closeMenu', function()
-    closeMenu(true)
+    closeMenu()
 end)
 
 -- NUI Callbacks
 
-RegisterNUICallback('clickedButton', function(data, cb)
-    PlaySoundFrontend(-1, 'Highlight_Cancel','DLC_HEIST_PLANNING_BOARD_SOUNDS', 1)
-    
-    local buttonData = data.data
-    if buttonData and buttonData.params then
-        if buttonData.params.event then
-            if buttonData.params.isServer then
-                TriggerServerEvent(buttonData.params.event, buttonData.params.args or {})
-            elseif buttonData.params.isCommand then
-                ExecuteCommand(buttonData.params.event)
-            elseif buttonData.params.isQBCommand then
-                TriggerServerEvent('QBCore:CallCommand', buttonData.params.event, buttonData.params.args or {})
-            elseif buttonData.params.isAction then
-                buttonData.params.event(buttonData.params.args or {})
-            else
-                TriggerEvent(buttonData.params.event, buttonData.params.args or {})
-            end
+RegisterNUICallback('clickedButton', function(option, cb)
+    if headerShown then headerShown = false end
+    PlaySoundFrontend(-1, 'Highlight_Cancel', 'DLC_HEIST_PLANNING_BOARD_SOUNDS', 1)
+    SetNuiFocus(false)
+    if sendData then
+        local data = sendData[tonumber(option)]
+        sendData = nil
+        if data.action ~= nil then
+            data.action()
+            cb('ok')
+            return
         end
-
-        if buttonData.params.shouldKeepInput then
-            SetNuiFocus(true, true)
-        else
-            if not buttonData.params.keepMenu then
-                closeMenu(true)
+        if data then
+            if data.params.event then
+                if data.params.isServer then
+                    TriggerServerEvent(data.params.event, data.params.args)
+                elseif data.params.isCommand then
+                    ExecuteCommand(data.params.event)
+                elseif data.params.isQBCommand then
+                    TriggerServerEvent('QBCore:CallCommand', data.params.event, data.params.args)
+                elseif data.params.isAction then
+                    data.params.event(data.params.args)
+                else
+                    TriggerEvent(data.params.event, data.params.args)
+                end
             end
         end
     end
-    
-    cb("ok")
+    cb('ok')
 end)
+
 
 RegisterNUICallback('closeMenu', function(_, cb)
-    closeMenu(true)
-    cb("ok")
+    headerShown = false
+    sendData = nil
+    SetNuiFocus(false)
+    cb('ok')
+    TriggerEvent("qb-menu:client:menuClosed")
 end)
 
--- Command and Key Mapping
+-- Command and Keymapping
 
 RegisterCommand('playerfocus', function()
-    if header ~= "" then
+    if headerShown then
         SetNuiFocus(true, true)
     end
 end)
 
-RegisterKeyMapping('playerfocus', 'Give Menu Focus', 'keyboard', 'LMENU')
+RegisterKeyMapping('playerFocus', 'Give Menu Focus', 'keyboard', 'LMENU')
 
 -- Exports
 
-exports('openMenu', showMenu)
+exports('openMenu', openMenu)
 exports('closeMenu', closeMenu)
 exports('showHeader', showHeader)
-
--- Threads
-
-CreateThread(function()
-    while true do
-        Wait(0)
-        if menuOpen then
-            if IsControlJustPressed(0, 177) then
-                closeMenu(true)
-            end
-        else
-            Wait(500)
-        end
-    end
-end)

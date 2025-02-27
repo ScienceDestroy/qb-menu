@@ -1,18 +1,16 @@
 fx_version 'cerulean'
 game 'gta5'
+lua54 'yes'
+author 'Kakarot'
+description 'Menu of options for players to interact with to do certain tasks'
+version '1.2.0'
 
-author 'Your Name'
-description 'Advanced Menu System for QB-Core'
-version '1.0.0'
+client_script 'client/main.lua'
 
 ui_page 'html/index.html'
 
-client_scripts {
-    'client/main.lua',
-}
-
 files {
     'html/index.html',
-    'html/styles.css',
-    'html/script.js'
+    'html/script.js',
+    'html/style.css'
 }

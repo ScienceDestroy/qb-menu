@@ -1,154 +1,99 @@
-let isDragging = false;
-let currentX;
-let currentY;
-let initialX;
-let initialY;
-let xOffset = 0;
-let yOffset = 0;
+let buttonParams = [];
+let images = [];
 
-const menuContainer = document.getElementById('menu-container');
-const menuHeader = document.getElementById('menu-header');
-const menuContent = document.getElementById('menu-content');
-const closeButton = document.getElementById('close-menu');
-
-menuHeader.addEventListener('mousedown', dragStart);
-document.addEventListener('mousemove', drag);
-document.addEventListener('mouseup', dragEnd);
-
-function dragStart(e) {
-    initialX = e.clientX - xOffset;
-    initialY = e.clientY - yOffset;
-
-    if (e.target === menuHeader || e.target.parentElement === menuHeader) {
-        isDragging = true;
-    }
-}
-
-function drag(e) {
-    if (isDragging) {
-        e.preventDefault();
-        currentX = e.clientX - initialX;
-        currentY = e.clientY - initialY;
-
-        xOffset = currentX;
-        yOffset = currentY;
-
-        setTranslate(currentX, currentY, menuContainer);
-    }
-}
-
-function dragEnd() {
-    initialX = currentX;
-    initialY = currentY;
-    isDragging = false;
-}
-
-function setTranslate(xPos, yPos, el) {
-    el.style.transform = `translate(${xPos}px, ${yPos}px)`;
-}
-
-function closeMenuUI() {
-    fetch(`https://${GetParentResourceName()}/closeMenu`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({})
-    }).then(() => {
-        menuContainer.classList.add('hidden');
-        menuContent.innerHTML = '';
-    });
-}
-
-function createMenuItem(item, index) {
-    const menuItem = document.createElement('div');
-    menuItem.className = `menu-item ${item.isMenuHeader ? 'header' : ''} ${item.disabled ? 'disabled' : ''}`;
-    
-    let iconHtml = '';
-    if (item.icon) {
-        if (item.icon.startsWith('fa-')) {
-            iconHtml = `<i class="fas ${item.icon}"></i>`;
-        } else if (item.icon.startsWith('http') || item.icon.startsWith('nui://')) {
-            iconHtml = `<img src="${item.icon}" alt="" class="menu-item-image">`;
+const openMenu = (data = null) => {
+    let html = "";
+    data.forEach((item, index) => {
+        if(!item.hidden) {
+            let header = item.header;
+            let message = item.txt || item.text;
+            let isMenuHeader = item.isMenuHeader;
+            let isDisabled = item.disabled;
+            let icon = item.icon;
+            images[index] = item;
+            html += getButtonRender(header, message, index, isMenuHeader, isDisabled, icon);
+            if (item.params) buttonParams[index] = item.params;
         }
-    }
-    
-    menuItem.innerHTML = `
-        ${iconHtml ? `<div class="menu-item-icon">${iconHtml}</div>` : ''}
-        <div class="menu-item-text">
-            <div>${item.header || ''}</div>
-            ${item.txt ? `<div class="menu-item-description">${item.txt}</div>` : ''}
+    });
+
+    $("#buttons").html(html);
+    $('body').css('display' , 'inline');
+    $("#menu-container").show();
+
+    // Initialize draggable
+    $("#menu-container").draggable({
+        handle: "#menu-header",
+        containment: "window",
+        start: function() {
+            $(this).css('transform', 'none');
+        }
+    });
+
+    $('.menu-item').click(function() {
+        const target = $(this)
+        if (!target.hasClass('header') && !target.hasClass('disabled')) {
+            postData(target.attr('id'));
+        }
+    });
+
+    // Close button handler
+    $('#close-menu').click(function() {
+        cancelMenu();
+    });
+};
+
+const getButtonRender = (header, message = null, id, isMenuHeader, isDisabled, icon) => {
+    return `
+        <div class="menu-item ${isMenuHeader ? "header" : ""} ${isDisabled ? "disabled" : ""}" id="${id}">
+            <div class="menu-item-icon">
+                ${icon ? `
+                    <img src="${icon}" class="menu-item-image" onerror="this.onerror=null; this.remove();">
+                    <i class="${icon}" onerror="this.onerror=null; this.remove();"></i>
+                ` : ''}
+            </div>
+            <div class="menu-item-text">
+                <div>${header}</div>
+                ${message ? `<div class="menu-item-description">${message}</div>` : ""}
+            </div>
         </div>
     `;
-    
-    if (!item.isMenuHeader && !item.disabled) {
-        menuItem.addEventListener('click', () => {
-            fetch(`https://${GetParentResourceName()}/clickedButton`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    data: item
-                })
-            });
-        });
-    }
-    
-    return menuItem;
-}
+};
 
-closeButton.addEventListener('click', closeMenuUI);
+const closeMenu = () => {
+    $("#buttons").html("");
+    $("#menu-container").hide();
+    buttonParams = [];
+    images = [];
+};
 
-window.addEventListener('message', (event) => {
+const postData = (id) => {
+    $.post(`https://${GetParentResourceName()}/clickedButton`, JSON.stringify(parseInt(id) + 1));
+    return closeMenu();
+};
+
+const cancelMenu = () => {
+    $.post(`https://${GetParentResourceName()}/closeMenu`);
+    return closeMenu();
+};
+
+window.addEventListener("message", (event) => {
     const data = event.data;
-
-    switch (data.action) {
-        case 'OPEN_MENU':
-            menuContainer.classList.remove('hidden');
-            const firstItem = data.data[0];
-            document.getElementById('menu-title').textContent = 
-                firstItem && firstItem.isMenuHeader ? firstItem.header : 'Menu';
-            
-            menuContent.innerHTML = '';
-            data.data.forEach((item, index) => {
-                if (!item.hidden) {
-                    menuContent.appendChild(createMenuItem(item, index));
-                }
-            });
-            
-            xOffset = 0;
-            yOffset = 0;
-            setTranslate(0, 0, menuContainer);
-            break;
-
-        case 'SHOW_HEADER':
-            menuContainer.classList.remove('hidden');
-            const headerItem = data.data[0];
-            document.getElementById('menu-title').textContent = 
-                headerItem && headerItem.header ? headerItem.header : 'Header';
-            
-            menuContent.innerHTML = '';
-            data.data.forEach((item, index) => {
-                if (!item.hidden) {
-                    menuContent.appendChild(createMenuItem(item, index));
-                }
-            });
-            
-            xOffset = 0;
-            yOffset = 0;
-            setTranslate(0, 0, menuContainer);
-            break;
-
-        case 'CLOSE_MENU':
-            menuContainer.classList.add('hidden');
-            menuContent.innerHTML = '';
-            break;
+    const buttons = data.data;
+    const action = data.action;
+    switch (action) {
+        case "OPEN_MENU":
+        case "SHOW_HEADER":
+            return openMenu(buttons);
+        case "CLOSE_MENU":
+            return closeMenu();
+        default:
+            return;
     }
 });
 
-document.addEventListener('keyup', (e) => {
-    if (e.key === 'Escape') {
-        closeMenuUI();
+document.onkeyup = function (event) {
+    const charCode = event.key;
+    if (charCode == "Escape") {
+        cancelMenu();
     }
-});
+};
